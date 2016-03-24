@@ -3,10 +3,9 @@ import numpy as np
 import os
 import scipy.misc
 import tensorflow as tf
+from vgg import VGG
+import neural_config
 
-FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_string('image_size', 224,
-                           """the size of the image that goes into the VGG net""")
 def parseArgs():
   parser = argparse.ArgumentParser()
   parser.add_argument('--modelpath', '-mp', default='vgg',
@@ -28,19 +27,27 @@ def parseArgs():
   return args.content, args.style, args.modelpath, args.width, args.alpha, args.beta, args.iters, args.out_dir
 
 
-def read_image(path, w=None):
+def read_image(path, w):
   img = scipy.misc.imread(path).astype(np.float)
-  # Resize if ratio is specified
-  if w:
-    r = w / np.float32(img.shape[1])
-    img = scipy.misc.imresize(img, (int(img.shape[0]*r), int(img.shape[1]*r)))
+  img = scipy.misc.imresize(img, (w, w))
   img = img.astype(np.float32)
-  img = img[None, ...]
   return img
 
 
 def main():
+  # content_image_path, style_image_path, model_path, output_size, alpha, beta, num_iters, out_dir = parseArgs()
   print "Read images..."
+  content_image = read_image(neural_config.content_path, neural_config.image_size)
+  style_image   = read_image(neural_config.style_path, neural_config.image_size)
+
+  vgg = VGG(neural_config.image_size)
+
+  # content_feat_map = vgg.getContentValues(content_image, neural_config.content_layer)
+  # style_feat_maps = vgg.getContentValues(style_image, neural_config.style_layers)
+  step, image = vgg.makeImage(content_image, style_image)
+  print step
+  print image.shape
+  # vgg.printTensors()
 
 
 
