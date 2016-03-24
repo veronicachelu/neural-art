@@ -65,44 +65,45 @@ class VGG(object):
       return grams
 
   def makeImage(self, content_image, style_image):
-    print "Make graph for new image..."
-
-    initial = np.random.normal(0, 1, (1, neural_config.output_size, neural_config.output_size, 3)) * 0.256
-    # image_data = tf.Variable(initial)
-    image_data = np.reshape(initial, [1, self.image_size, self.image_size, 3])
-    assert image_data.shape == (1, self.image_size, self.image_size, 3)
-    feed_dict = { "Placeholder:0": image_data }
-
-    # feature_maps = sess.run(neural_config.new_image_layers, feed_dict=feed_dict)
-
-    content_feat_map = self.getContentValues(content_image, neural_config.content_layer)
-    style_grams = self.getStyleValues(style_image, neural_config.style_layers)
-
-    # content loss
-    content_loss = neural_config.content_weight * (2 * tf.nn.l2_loss(
-              self.new_image_tensors[0] - content_feat_map) /
-              content_feat_map.size)
-
-    # style loss
-    style_loss = 0
-
-    for index, style_layer in enumerate(neural_config.new_image_layers):
-      if index == 0:
-        continue
-      layer = self.new_image_tensors[index]
-      layer_shape = layer.get_shape().dims
-      feats = tf.reshape(layer, (-1, layer_shape[3].value))
-      layer_size = layer_shape[1].value * layer_shape[2].value * layer_shape[3].value
-      gram = tf.matmul(tf.transpose(feats), feats) / layer_size
-      style_loss = neural_config.style_weight * (2 * tf.nn.l2_loss(gram - style_grams[index - 1]) / style_grams[index - 1].size)
-
-    # overall loss
-    loss = content_loss + style_loss
-
     with tf.Session() as sess:
+      print "Make graph for new image..."
+
+      initial = np.random.normal(0, 1, (1, neural_config.output_size, neural_config.output_size, 3)) * 0.256
+      # image_data = tf.Variable(initial)
+      image_data = np.reshape(initial, [1, self.image_size, self.image_size, 3])
+      assert image_data.shape == (1, self.image_size, self.image_size, 3)
+      feed_dict = { "Placeholder:0": image_data }
+
+      # feature_maps = sess.run(neural_config.new_image_layers, feed_dict=feed_dict)
+
+      content_feat_map = self.getContentValues(content_image, neural_config.content_layer)
+      style_grams = self.getStyleValues(style_image, neural_config.style_layers)
+
+      # content loss
+      content_loss = neural_config.content_weight * (2 * tf.nn.l2_loss(
+                self.new_image_tensors[0] - content_feat_map) /
+                content_feat_map.size)
+
+      # style loss
+      style_loss = 0
+
+      for index, style_layer in enumerate(neural_config.new_image_layers):
+        if index == 0:
+          continue
+        layer = self.new_image_tensors[index]
+        layer_shape = layer.get_shape().dims
+        feats = tf.reshape(layer, (-1, layer_shape[3].value))
+        layer_size = layer_shape[1].value * layer_shape[2].value * layer_shape[3].value
+        gram = tf.matmul(tf.transpose(feats), feats) / layer_size
+        style_loss = neural_config.style_weight * (2 * tf.nn.l2_loss(gram - style_grams[index - 1]) / style_grams[index - 1].size)
+
+      # overall loss
+      loss = tf.add(content_loss, style_loss)
+
+
       # optimizer setup
-      vars = [op.outputs[0] for op in tf.get_default_graph().get_operations() if op.outputs and op.outputs[0] and op.outputs[0].name == "add:0"]
-      opt = tf.train.AdamOptimizer(neural_config.learning_rate).minimize(vars[0])
+      # vars = [op.outputs[0] for op in tf.get_default_graph().get_operations() if op.outputs and op.outputs[0] and op.outputs[0].name == "add:0"]
+      opt = tf.train.AdamOptimizer(neural_config.learning_rate).minimize(loss)
       init = tf.initialize_all_variables()
       sess.run(init)
 
