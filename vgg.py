@@ -31,6 +31,8 @@ class VGG(object):
 
   def getContentValues(self, content_image, tensor_name):
     print "Load content feat map..."
+    # Create an instance, passing in the input data
+
     with tf.Session() as sess:
       init = tf.initialize_all_variables()
       images = tf.placeholder("float", [None, self.image_size, self.image_size, 3], name="Placeholder")
