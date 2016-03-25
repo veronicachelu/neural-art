@@ -92,7 +92,10 @@ def getStyleValues(style_image):
 
 def build_graph(content_feat_map, style_grams, content_image):
   print "Make graph for new image..."
-  gen_image = tf.Variable(tf.constant(np.array(content_image, dtype=np.float32)), trainable=True, name='gen_image')
+  # image = tf.constant(content_image)
+  # image = tf.reshape(image, [1, neural_config.image_size, neural_config.image_size, 3])
+
+  gen_image = tf.Variable(tf.constant(content_image), trainable=True, name='gen_image')
     # gen_image = tf.Variable(tf.random_normal([1, neural_config.output_size, neural_config.output_size, 3]) * 0.256, trainable=True, name='gen_image')
   gen_image = tf.reshape(gen_image, [1, neural_config.image_size, neural_config.image_size, 3])
   net = VGG19({'data': gen_image}, scope="GEN_IMAGE")
@@ -103,7 +106,7 @@ def build_graph(content_feat_map, style_grams, content_image):
     # Forward pass
     feature_maps = [net.layers[tensor] for tensor in neural_config.new_image_layers]
 
-    img_content_feat_map = feature_maps[0]
+    img_content_feat_map = net.layers[neural_config.content_layer]
 
     img_style_grams = []
 
