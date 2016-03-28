@@ -1,60 +1,15 @@
-import argparse
 import numpy as np
-import os
-import scipy.misc
 import tensorflow as tf
 from vgg import VGG
 import neural_config
 from vgg19 import VGG19
+import utils
 
-def parseArgs():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--modelpath', '-mp', default='vgg',
-                      help='Model file path')
-  parser.add_argument('--content', '-c', default='images/content.jpg',
-                      help='Content image path')
-  parser.add_argument('--style', '-s', default='images/style.jpg',
-                      help='Style image path')
-  parser.add_argument('--width', '-w', default=800, type=int,
-                      help='Output image width')
-  parser.add_argument('--iters', '-i', default=5000, type=int,
-                      help='Number of iterations')
-  parser.add_argument('--out_dir', default="output")
-  args = parser.parse_args()
-  return args.content, args.style, args.modelpath, args.width, args.iters, args.out_dir
 
-def read_image(path, w):
-  img = scipy.misc.imread(path).astype(np.float)
-  img = scipy.misc.imresize(img, (w, w))
-  img = img.astype(np.float32)
-
-  red, green, blue = np.split(img, 3, 2)
-  img = np.concatenate([
-            red - neural_config.mean[0],
-            green - neural_config.mean[1],
-            blue - neural_config.mean[2],
-        ], 2)
-  return img
-
-def save_image(im, step, out_dir):
-  img = im.copy()
-  red, green, blue = np.split(img, 3, 3)
-  img = np.concatenate([
-            red + neural_config.mean[0],
-            green + neural_config.mean[1],
-            blue + neural_config.mean[2],
-        ], 3)
-  img = np.clip(img[0, ...], 0, 255).astype(np.uint8)
-  if not os.path.exists(out_dir):
-      os.mkdir(out_dir)
-  scipy.misc.imsave("{}/neural_art_step{}.png".format(out_dir, step), img)
-
-def getContentValues(content_image):
+def getContentValues(content_image, scope):
   print "Load content feat map..."
-  # image_data = np.reshape(content_image, [1, neural_config.image_size, neural_config.image_size, 3])
   image = tf.constant(content_image)
-  image = tf.reshape(image, [1, neural_config.image_size, neural_config.image_size, 3])
-  net = VGG19({'data': image}, scope="CONTENT_IMAGE")
+  net = VGG19({'data': image}, scope=scope, trainable=False)
   with tf.Session() as sess:
     # Load the data
     net.load(neural_config.model_path, sess)
@@ -65,14 +20,11 @@ def getContentValues(content_image):
     return feature_map
 
 
-def getStyleValues(style_image):
+def getStyleValues(style_image, scope):
   print "Load style feat maps..."
 
-  # image_data = np.reshape(style_image, [1, neural_config.image_size, neural_config.image_size, 3])
-  # feed_dict = { "Placeholder:0": image_data }
   image = tf.constant(style_image)
-  image = tf.reshape(image, [1, neural_config.image_size, neural_config.image_size, 3])
-  net = VGG19({'data': image}, scope="STYLE_IMAGE")
+  net = VGG19({'data': image}, scope=scope, trainable=False)
   with tf.Session() as sess:
     # Load the data
     net.load(neural_config.model_path, sess)
@@ -90,15 +42,14 @@ def getStyleValues(style_image):
 
     return grams
 
-def build_graph(content_feat_map, style_grams, content_image):
+def build_graph(content_feat_map, style_grams, content_image, scope):
   print "Make graph for new image..."
-  # image = tf.constant(content_image)
-  # image = tf.reshape(image, [1, neural_config.image_size, neural_config.image_size, 3])
+  initial = tf.random_normal(content_image.shape) * 0.256
+  image = tf.Variable(initial, trainable=True)
 
-  gen_image = tf.Variable(tf.constant(content_image), trainable=True, name='gen_image')
-    # gen_image = tf.Variable(tf.random_normal([1, neural_config.output_size, neural_config.output_size, 3]) * 0.256, trainable=True, name='gen_image')
-  gen_image = tf.reshape(gen_image, [1, neural_config.image_size, neural_config.image_size, 3])
-  net = VGG19({'data': gen_image}, scope="GEN_IMAGE")
+  image_vars_set = set(tf.all_variables())
+
+  net = VGG19({'data': image}, scope=scope, trainable=False)
   with tf.Session() as sess:
     # Load the data
     net.load(neural_config.model_path, sess)
@@ -106,7 +57,8 @@ def build_graph(content_feat_map, style_grams, content_image):
     # Forward pass
     feature_maps = [net.layers[tensor] for tensor in neural_config.new_image_layers]
 
-    img_content_feat_map = net.layers[neural_config.content_layer]
+    img_content_feat_map = feature_maps[0]
+    utils.activation_summary(img_content_feat_map)
 
     img_style_grams = []
 
@@ -117,23 +69,21 @@ def build_graph(content_feat_map, style_grams, content_image):
       features = tf.reshape(feat_map, (-1, layer_shape[3].value))
       gram = tf.matmul(tf.transpose(features), features) / size
       img_style_grams.append(gram)
-
+      utils.activation_summary(gram)
 
     # content loss
-    content_loss = neural_config.content_weight * tf.nn.l2_loss(
-      img_content_feat_map - content_feat_map)
+    content_loss = neural_config.content_weight * (2 * tf.nn.l2_loss(
+      img_content_feat_map - content_feat_map) / content_feat_map.size)
 
     tf.scalar_summary("content_loss", content_loss)
 
     # style loss
     style_loss = 0
-
+    style_losses = []
     for index, style_layer in enumerate(neural_config.style_layers):
-      style_loss = tf.nn.l2_loss(
-        img_style_grams[index] - style_grams[index]) / 2
+      style_losses.append(2 * tf.nn.l2_loss( img_style_grams[index] - style_grams[index]) / style_grams[index].size)
 
-    style_loss /= len(neural_config.style_layers)
-    style_loss *= neural_config.style_weight
+    style_loss += neural_config.style_weight * reduce(tf.add, style_losses)
 
 
     tf.scalar_summary("style_loss", style_loss)
@@ -143,21 +93,26 @@ def build_graph(content_feat_map, style_grams, content_image):
 
     tf.scalar_summary("total_loss", loss)
 
+    temp = set(tf.all_variables())
+
     # optimizer setup
-    opt = tf.train.AdamOptimizer(neural_config.learning_rate).minimize(loss)
+    # opt = tf.train.AdamOptimizer(neural_config.learning_rate).minimize(loss)
+    global_step = tf.Variable(0, trainable=False)
+    learning_rate = tf.train.exponential_decay(learning_rate=neural_config.learning_rate, global_step=global_step,
+                                               decay_steps=neural_config.decay_steps,
+                                               decay_rate=neural_config.decay_rate,
+                                               staircase=True)
+    opt = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step=global_step)
 
-    init = tf.initialize_all_variables()
+    vars = set(tf.all_variables()) - temp
+    vars = vars.union(image_vars_set)
+    # vars.add(image)
+    init = tf.initialize_variables(vars)
+
     sess.run(init)
-
-    gen_image_value = sess.run(gen_image)
-    img_content_feat_map_value = sess.run(img_content_feat_map)
-
-    summary_op = tf.merge_all_summaries()
-    summary_writer = tf.train.SummaryWriter(neural_config.train_dir)
 
     # optimization
     best_loss = float('inf')
-    best = None
 
     for step in xrange(neural_config.max_iter):
       _, content_loss_value, style_loss_value, loss_value = sess.run([opt, content_loss, style_loss, loss])
@@ -169,9 +124,13 @@ def build_graph(content_feat_map, style_grams, content_image):
       if (neural_config.checkpoint_steps and step % neural_config.checkpoint_steps == 0) or last_step:
         if loss_value < best_loss:
           best_loss = loss_value
-          best = sess.run(gen_image)
-          best.reshape([neural_config.image_size, neural_config.image_size, 3])
-          save_image(best, step, neural_config.output_dir)
+          best = sess.run(image)
+
+          # best_image = utils.save_image(best, step, neural_config.output_dir)
+          tf.image_summary(("images/best%d" % (step)), best)
+
+          summary_op = tf.merge_all_summaries()
+          summary_writer = tf.train.SummaryWriter(neural_config.train_dir)
 
           summary_str = sess.run(summary_op)
           summary_writer.add_summary(summary_str, step)
@@ -181,23 +140,24 @@ def build_graph(content_feat_map, style_grams, content_image):
 
 def main():
   # content_image_path, style_image_path, model_path, output_size, alpha, beta, num_iters, out_dir = parseArgs()
+  # clear previous output folders
+  if tf.gfile.Exists(neural_config.output_dir):
+    tf.gfile.DeleteRecursively(neural_config.output_dir)
+  tf.gfile.MakeDirs(neural_config.output_dir)
+
+  if tf.gfile.Exists(neural_config.train_dir):
+    tf.gfile.DeleteRecursively(neural_config.train_dir)
+  tf.gfile.MakeDirs(neural_config.train_dir)
+
   print "Read images..."
-  content_image = read_image(neural_config.content_path, neural_config.image_size)
-  style_image   = read_image(neural_config.style_path, neural_config.image_size)
+  content_image = utils.read_image(neural_config.content_path)
+  style_image   = utils.read_image(neural_config.style_path)
 
-  # vgg = VGG(neural_config.image_size)
-  # image = tf.placeholder("float", [1, neural_config.image_size, neural_config.image_size, 3])
-  # net = VGG19({'data': image}, scope="FORWARD_IMAGE")
-  # with tf.Session() as sess:
-  #   Load the data
-    # net.load(neural_config.model_path, sess)
+  content_feat_map = getContentValues(content_image, "Content1")
 
-  content_feat_map = getContentValues(content_image)
-  style_grams = getStyleValues(style_image)
+  style_grams = getStyleValues(style_image, "Style")
 
-  build_graph(content_feat_map, style_grams, content_image)
-
-  # vgg.printTensors()
+  build_graph(content_feat_map, style_grams, content_image, "Gen")
 
 
 if __name__ == '__main__':

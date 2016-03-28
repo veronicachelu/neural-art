@@ -42,7 +42,7 @@ class Network(object):
                 for subkey, data in zip(('weights', 'biases'), data_dict[key]):
                     try:
                         with tf.variable_scope(self.internal_scope):
-                            var = tf.get_variable(subkey)
+                            var = tf.get_variable(subkey, trainable=self.trainable)
                             session.run(var.assign(data))
                     except ValueError:
                         if not ignore_missing:
