@@ -4,6 +4,7 @@ import neural_config
 import argparse
 import os
 import tensorflow as tf
+import neural_config
 
 
 def read_image(path):
@@ -49,19 +50,15 @@ def save_image(im, step, out_dir):
 
 def parseArgs():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--modelpath', '-mp', default='vgg',
-                      help='Model file path')
-  parser.add_argument('--content', '-c', default='images/content.jpg',
+  parser.add_argument('--content', '-c', default=neural_config.content_path,
                       help='Content image path')
-  parser.add_argument('--style', '-s', default='images/style.jpg',
+  parser.add_argument('--style', '-s', default=neural_config.style_path,
                       help='Style image path')
-  parser.add_argument('--width', '-w', default=800, type=int,
-                      help='Output image width')
-  parser.add_argument('--iters', '-i', default=5000, type=int,
-                      help='Number of iterations')
-  parser.add_argument('--out_dir', default="output")
+  parser.add_argument('--iters', '-i', default=neural_config.max_iter, type=int,
+                      help='Number of steps/iterations')
+  parser.add_argument('--output_dir', default=neural_config.output_dir)
   args = parser.parse_args()
-  return args.content, args.style, args.modelpath, args.width, args.iters, args.out_dir
+  return args.content, args.style, args.iters, args.output_dir
 
 
 # def read_image(path, w=None):
@@ -78,7 +75,7 @@ def parseArgs():
 #         ], 2)
 #   return img
 
-def activation_summary(x):
+def activation_summary(x, tensor_name):
   """Helper to create summaries for activations.
 
   Creates a summary that provides a histogram of activations.
@@ -89,7 +86,7 @@ def activation_summary(x):
   Returns:
     nothing
   """
-  tensor_name = x.op.name
+  # tensor_name = x.op.name
   tf.histogram_summary(tensor_name + '/activations', x)
   tf.scalar_summary(tensor_name + '/sparsity', tf.nn.zero_fraction(x))
 
