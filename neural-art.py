@@ -42,7 +42,8 @@ def getStyleValues(style_image, scope):
 
     return grams
 
-def build_graph(content_feat_map, style_grams, content_image, max_steps, output_dir, scope):
+def build_graph(content_feat_map, style_grams, content_image, max_steps,
+                output_dir, output_image_name, option_weights, scope):
   print "Make graph for new image..."
   # initial = tf.random_normal(content_image.shape) * 0.256
   initial = tf.truncated_normal(content_image.shape, stddev=20)
@@ -73,7 +74,7 @@ def build_graph(content_feat_map, style_grams, content_image, max_steps, output_
       utils.activation_summary(gram, "gen_image_style_gram%d" % index)
 
     # content loss
-    content_loss = neural_config.content_weight * (2 * tf.nn.l2_loss(
+    content_loss = option_weights[0] * (2 * tf.nn.l2_loss(
       img_content_feat_map - content_feat_map) / content_feat_map.size)
 
     tf.scalar_summary("content_loss", content_loss)
@@ -84,13 +85,23 @@ def build_graph(content_feat_map, style_grams, content_image, max_steps, output_
     for index, style_layer in enumerate(neural_config.style_layers):
       style_losses.append(2 * tf.nn.l2_loss( img_style_grams[index] - style_grams[index]) / style_grams[index].size)
 
-    style_loss += neural_config.style_weight * reduce(tf.add, style_losses)
-
+    style_loss += option_weights[1] * reduce(tf.add, style_losses)
 
     tf.scalar_summary("style_loss", style_loss)
 
+    # total variation denoising
+    tv_y_size = utils.getTensorSize(image[:,1:,:,:])
+    tv_x_size = utils.getTensorSize(image[:,:,1:,:])
+    tv_loss = option_weights[2] * 2 * (
+            (tf.nn.l2_loss(image[:,1:,:,:] - image[:,:content_image.shape[1]-1,:,:]) /
+                tv_y_size) +
+            (tf.nn.l2_loss(image[:,:,1:,:] - image[:,:,:content_image.shape[2]-1,:]) /
+                tv_x_size))
+
+    tf.scalar_summary("tv_loss", tv_loss)
+
     # overall loss
-    loss = tf.add(content_loss, style_loss)
+    loss = content_loss + style_loss + tv_loss
 
     tf.scalar_summary("total_loss", loss)
 
@@ -128,6 +139,7 @@ def build_graph(content_feat_map, style_grams, content_image, max_steps, output_
           best = sess.run(image)
 
           # best_image = utils.save_image(best, step, output_dir)
+          utils.add_mean(best)
           tf.image_summary(("images/step%d" % step), best, name="gen_image")
 
           summary_op = tf.merge_all_summaries()
@@ -136,18 +148,21 @@ def build_graph(content_feat_map, style_grams, content_image, max_steps, output_
           summary_str = sess.run(summary_op)
           summary_writer.add_summary(summary_str, step)
 
-        if last_step:
-          utils.save_image(best, step, output_dir)
+        # if last_step:
+          utils.save_image(best, step, output_dir, output_image_name)
 
 
 
 
 def main():
-  content_image_path, style_image_path, max_steps, output_dir = utils.parseArgs()
+  content_image_path, style_image_path, max_steps, output_dir,\
+  content_weight, style_weight, tv_weight, output_image_name = utils.parseArgs()
   # clear previous output folders
-  if tf.gfile.Exists(output_dir):
-    tf.gfile.DeleteRecursively(output_dir)
-  tf.gfile.MakeDirs(output_dir)
+  # if tf.gfile.Exists(output_dir):
+  #   tf.gfile.DeleteRecursively(output_dir)
+  # tf.gfile.MakeDirs(output_dir)
+
+  option_weights = [content_weight, style_weight, tv_weight]
 
   if tf.gfile.Exists(neural_config.train_dir):
     tf.gfile.DeleteRecursively(neural_config.train_dir)
@@ -161,7 +176,8 @@ def main():
 
   style_grams = getStyleValues(style_image, "Style")
 
-  build_graph(content_feat_map, style_grams, content_image, max_steps,  output_dir, "Gen")
+  build_graph(content_feat_map, style_grams, content_image, max_steps,
+              output_dir, output_image_name, option_weights, "Gen")
 
 
 if __name__ == '__main__':
